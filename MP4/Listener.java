@@ -1,47 +1,102 @@
 import java.io.*;
 import java.net.*;
+import java.util.Random;
 
-class naiveclient {
+class Listener {
 
     public static void main(String[] args) throws Exception {
-        if (args.length < 2) {
+       if (args.length < 3) {
             System.out.println("Please provide the server IP and port");
             return;
-        }
+       }
 
         // convert passed parameters to client values
-        String serverIP;
-        int port;
+        String talkerIP;
+        int portTalker;
+        int portListener;
         try {
-            serverIP = args[0];
-            port = Integer.parseInt(args[1]);
+            talkerIP = args[0];
+            portTalker = Integer.parseInt(args[1]);
+            portListener = Integer.parseInt(args[2]);
         } catch (NumberFormatException e) {
             System.out.println("Please enter valid integers for the server IP and port number.");
             return;
-        }
+        }    	
+    	
+       DatagramSocket listenerSocket = null;
 
-        // string to store server response
-        int message;
+    	try {
+            listenerSocket = new DatagramSocket(portListener);
+            InetAddress talkerAddress = InetAddress.getByName(talkerIP);
+            // Listen for messages from the Talker
+            byte[] receieveData = new byte[1024];        	
+        	DatagramPacket receivePacket = new DatagramPacket(receieveData, receieveData.length);
+            listenerSocket.receive(receivePacket);
+            
+            Random random = new Random();
 
-        Socket clientSocket = null;
-        try {
-            // create client socket to connect to server
-            clientSocket = new Socket(serverIP, port);
+            // ACK each message
+            int expectedSeqNum = 0;
+            int prevMsgNum = 0;
+            int numMsg = 0;
+            int frame = 0;
+            int msgNum = 0;
+            String msgTalk = "";
+            String msgFull = "";
+            while (expectedSeqNum <= numMsg) {
+                String receivedMessage = new String(receivePacket.getData(), 0, receivePacket.getLength());
+            	// Find length of message
+            	if (expectedSeqNum == 0) {
+            		frame = receivedMessage.indexOf(":");
+                    msgNum = Integer.parseInt(receivedMessage.substring(0,frame)); // exclude frame
+                    numMsg = Integer.parseInt(receivedMessage.substring(frame + 1));
+                    
+                    System.out.println("Expecting " + numMsg + " messages.");
+            	} else {
+                    receivePacket = new DatagramPacket(new byte[1024], 1024);
+                    listenerSocket.receive(receivePacket);
+                    // put the symbol or character that separates the message number from the rest of the message
+                    frame = receivedMessage.indexOf(":");
+                    msgNum = Integer.parseInt(receivedMessage.substring(0,frame)); // exclude frame
+                    msgTalk = receivedMessage.substring(frame + 1); // exclude frame             
+                
+                    System.out.println("Received message " + msgNum + ": " + msgTalk);            		
+            	}
+                
 
-            // create input stream to read bytes from server
-            InputStream inFromServer = clientSocket.getInputStream();
 
-            System.out.print("FROM SERVER: ");
+                // Random ACK
+                if (random.nextBoolean()) {
+                    String ackMessage = String.valueOf(msgNum + 1);  // ACK the next expected message
+                    byte[] sendData = ackMessage.getBytes();
+                    DatagramPacket sendPacket = new DatagramPacket(sendData, sendData.length, talkerAddress, portTalker);
+                    listenerSocket.send(sendPacket);
+                    System.out.println("ACK: " + msgNum);
+                    if (prevMsgNum != 0) {
+                    	msgFull = msgFull + msgTalk;
+                	}
+                    prevMsgNum = msgNum;
+                    expectedSeqNum++;
+                    
+                    if(expectedSeqNum == numMsg) {
+//                        System.out.println(msgFull);
+                        listenerSocket.close();
+                    }
 
-            // read the message sent (we must manually read from server)
-            while ((message = inFromServer.read()) != -1) {
-                // cast bytes to char, print to terminal
-                System.out.print((char) message);
+                } else {
+                    System.out.println("Dropped ACK " + msgNum);
+                }
+
             }
-            // close the connection
-            clientSocket.close();
-        } catch (IOException e) {
-            System.out.println("Server refused connection.");
+            listenerSocket.close();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+    	
+        // close the connection                	
+    	if (listenerSocket != null && !listenerSocket.isClosed()) {
+        	listenerSocket.close();
+        }
+
     }
 }
